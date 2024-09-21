@@ -39,7 +39,7 @@ simulated_avellaneda:
     gamma: 0.9
     k: 1.2
     sigma: 0.01
-    T: 3600
+    T: 36000
   log_level: INFO
   dt: 0.1
 

@@ -381,7 +381,7 @@ class AvellanedaMarketMaker:
         normalized_t = t / self.T  # Normalize time to [0, 1]
         spread = (self.gamma * (self.sigma**2) * (1 - normalized_t) + 
                   (2 / self.gamma) * math.log(1 + (self.gamma / self.k)))
-        scaled_spread = spread * 0.07  # Scale to penny level, plus an adjustment factor
+        scaled_spread = spread * 0.01  # Scale to penny level (TODO: why?)
         self.logger.info(f"Calculated optimal spread: {scaled_spread:.4f}")
         return scaled_spread
 
