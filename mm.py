@@ -8,6 +8,8 @@ import logging
 from dotenv import load_dotenv
 import os
 import uuid
+import math
+import random
 
 
 class AbstractTradingAPI(abc.ABC):
@@ -16,11 +18,11 @@ class AbstractTradingAPI(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def place_order(self, side: str, price: float, quantity: int, expiration_ts: int = None) -> int:
+    def place_order(self, side: str, price: float, quantity: int, expiration_ts: int = None) -> str:
         pass
 
     @abc.abstractmethod
-    def cancel_order(self, order_id: int) -> bool:
+    def cancel_order(self, order_id: str) -> bool:
         pass
 
     @abc.abstractmethod
@@ -31,8 +33,7 @@ class AbstractTradingAPI(abc.ABC):
     def get_orders(self) -> List[Dict]:
         pass
 
-
-class KalshiTradingAPI:
+class KalshiTradingAPI(AbstractTradingAPI):
     def __init__(
         self,
         email: str,
@@ -134,7 +135,7 @@ class KalshiTradingAPI:
         self.logger.info(f"Current {self.trade_side} mid-market price: ${mid_price:.2f}")
         return mid_price
 
-    def place_order(self, side: str, price: float, quantity: int, expiration_ts: int = None) -> int:
+    def place_order(self, side: str, price: float, quantity: int, expiration_ts: int = None) -> str:
         self.logger.info(
             f"Placing {side} order at price ${price:.2f} with quantity {quantity}..."
         )
@@ -157,7 +158,7 @@ class KalshiTradingAPI:
         self.logger.info(
             f"Placed {side} order at price ${price:.2f} with quantity {quantity}, order ID: {order_id}"
         )
-        return order_id
+        return str(order_id)
 
     def cancel_order(self, order_id: int) -> bool:
         self.logger.info(f"Canceling order with ID {order_id}...")
@@ -181,12 +182,106 @@ class KalshiTradingAPI:
     def __del__(self):
         self.logout()
 
+class SimulatedKalshiTradingApi(AbstractTradingAPI):
+    def __init__(self, initial_price: float = 0.5, volatility: float = 0.0001, logger: logging.Logger = None):
+        self.current_price = initial_price
+        self.volatility = volatility
+        self.position = 0
+        self.orders = {}
+        self.order_book = {'bids': {}, 'asks': {}}
+        self.last_update = time.time()
+        self.logger = logger or logging.getLogger(__name__)
 
-class MarketMaker:
+    def _update_price(self):
+        current_time = time.time()
+        dt = current_time - self.last_update
+        self.last_update = current_time
+        
+        # Brownian motion price update
+        price_change = random.gauss(0, self.volatility * (dt ** 0.5))
+        self.current_price = max(0, min(1, self.current_price + price_change))
+        self.logger.debug(f"Updated price to {self.current_price:.4f}")
+
+    def _execute_orders(self):
+        best_bid = max(self.order_book['bids'].keys()) if self.order_book['bids'] else 0
+        best_ask = min(self.order_book['asks'].keys()) if self.order_book['asks'] else 1
+
+        if best_bid >= best_ask:
+            execution_price = (best_bid + best_ask) / 2
+            bid_order = self.order_book['bids'][best_bid].pop(0)
+            ask_order = self.order_book['asks'][best_ask].pop(0)
+
+            self.position += bid_order['quantity']
+            self.position -= ask_order['quantity']
+
+            del self.orders[bid_order['order_id']]
+            del self.orders[ask_order['order_id']]
+
+            if not self.order_book['bids'][best_bid]:
+                del self.order_book['bids'][best_bid]
+            if not self.order_book['asks'][best_ask]:
+                del self.order_book['asks'][best_ask]
+
+            self.logger.info(f"Executed orders at price {execution_price:.4f}")
+
+    def get_price(self) -> float:
+        self._update_price()
+        self._execute_orders()
+        self.logger.info(f"Current price: {self.current_price:.4f}")
+        return self.current_price
+
+    def place_order(self, side: str, price: float, quantity: int, expiration_ts: int = None) -> str:
+        order_id = str(uuid.uuid4())
+        order = {
+            'order_id': order_id,
+            'side': side,
+            'price': price,
+            'quantity': quantity,
+            'expiration_ts': expiration_ts
+        }
+        self.orders[order_id] = order
+
+        book_side = 'bids' if side == 'BUY' else 'asks'
+        if price not in self.order_book[book_side]:
+            self.order_book[book_side][price] = []
+        self.order_book[book_side][price].append(order)
+
+        self.logger.info(f"Placed {side} order: ID {order_id}, Price {price:.4f}, Quantity {quantity}")
+        return order_id
+
+    def cancel_order(self, order_id: str) -> bool:
+        if order_id not in self.orders:
+            self.logger.warning(f"Attempted to cancel non-existent order: {order_id}")
+            return False
+
+        order = self.orders[order_id]
+        book_side = 'bids' if order['side'] == 'BUY' else 'asks'
+        self.order_book[book_side][order['price']].remove(order)
+        if not self.order_book[book_side][order['price']]:
+            del self.order_book[book_side][order['price']]
+        del self.orders[order_id]
+
+        self.logger.info(f"Canceled order: {order_id}")
+        return True
+
+    def get_position(self) -> int:
+        self.logger.info(f"Current position: {self.position}")
+        return self.position
+
+    def get_orders(self) -> List[Dict]:
+        current_time = time.time()
+        active_orders = [
+            order for order in self.orders.values()
+            if order['expiration_ts'] is None or order['expiration_ts'] > current_time
+        ]
+        self.logger.info(f"Retrieved {len(active_orders)} active orders")
+        return active_orders
+
+class SimpleMarketMaker:
     def __init__(
         self,
         logger: logging.Logger,
-        api: KalshiTradingAPI,
+        api: AbstractTradingAPI,  # Change to AbstractTradingAPI
         spread: float = 0.01,
         max_position: int = 100,
         order_expiration: int = 60,
@@ -238,6 +333,89 @@ class MarketMaker:
 
             time.sleep(dt)
 
+class AvellanedaMarketMaker:
+    def __init__(
+        self,
+        logger: logging.Logger,
+        api: AbstractTradingAPI,
+        gamma: float = 0.0001,
+        k: float = 1.5,
+        sigma: float = 0.00001,
+        T: float = 3600,  # Time horizon in seconds (e.g., 1 hour)
+        max_position: int = 100,
+        order_expiration: int = 60,
+    ):
+        self.api = api
+        self.logger = logger
+        self.gamma = gamma
+        self.k = k
+        self.sigma = sigma
+        self.T = T
+        self.max_position = max_position
+        self.current_orders = []
+        self.order_expiration = order_expiration
+
+    def calculate_reservation_price(self, mid_price: float, inventory: int, t: float) -> float:
+        normalized_t = t / self.T  # Normalize time to [0, 1]
+        reservation_price = mid_price - inventory * self.gamma * (self.sigma**2) * (1 - normalized_t)
+        self.logger.info(f"Calculated reservation price: {reservation_price:.4f}")
+        return reservation_price
+
+    def calculate_optimal_spread(self, t: float) -> float:
+        normalized_t = t / self.T  # Normalize time to [0, 1]
+        spread = (self.gamma * (self.sigma**2) * (1 - normalized_t) + 
+                  (2 / self.gamma) * math.log(1 + (self.gamma / self.k)))
+        scaled_spread = spread * 0.01  # Scale to penny level
+        self.logger.info(f"Calculated optimal spread: {scaled_spread:.4f}")
+        return scaled_spread
+
+    def calculate_optimal_quotes(self, mid_price: float, inventory: int, t: float) -> tuple:
+        reservation_price = self.calculate_reservation_price(mid_price, inventory, t)
+        spread = self.calculate_optimal_spread(t)
+        
+        bid_price = max(0, min(mid_price, reservation_price - spread / 2))
+        ask_price = min(1, max(mid_price, reservation_price + spread / 2))
+        
+        self.logger.info(f"Optimal quotes - Bid: {bid_price:.4f}, Ask: {ask_price:.4f}")
+        return bid_price, ask_price
+
+    def run(self, dt: float):
+        start_time = time.time()
+        while time.time() - start_time < self.T:
+            current_time = time.time() - start_time
+            self.logger.info(f"Running Avellaneda market maker at {current_time:.2f}")
+
+            mid_price = self.api.get_price()
+            inventory = self.api.get_position()
+            self.logger.info(f"Current mid price: {mid_price:.4f}, Inventory: {inventory}")
+            self.current_orders = [order["order_id"] for order in self.api.get_orders()]
+
+            # Cancel existing orders
+            for order_id in self.current_orders:
+                self.api.cancel_order(order_id)
+            self.current_orders.clear()
+
+            # Calculate new bid and ask prices
+            bid_price, ask_price = self.calculate_optimal_quotes(mid_price, inventory, current_time)
+
+            # Place new orders, only if they do not exceed bounds and are within valid price range
+            if abs(inventory) < self.max_position:
+                expiration_ts = int(time.time()) + self.order_expiration
+                if 0 < bid_price < mid_price:
+                    bid_id = self.api.place_order("BUY", bid_price, 1, expiration_ts)
+                    self.current_orders.append(bid_id)
+                else:
+                    self.logger.info(f"Skipping BUY order: Price {bid_price:.4f} is out of valid range (0, {mid_price:.4f})")
+
+                if mid_price < ask_price < 1:
+                    ask_id = self.api.place_order("SELL", ask_price, 1, expiration_ts)
+                    self.current_orders.append(ask_id)
+                else:
+                    self.logger.info(f"Skipping SELL order: Price {ask_price:.4f} is out of valid range ({mid_price:.4f}, 1)")
+
+            time.sleep(dt)
+
+        self.logger.info("Avellaneda market maker finished running")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Simple Market Making Algorithm")
@@ -264,19 +442,16 @@ if __name__ == "__main__":
     parser.add_argument(
         "--spread",
         type=float,
-        default=0.01,
         help="Spread for market making (in dollars)",
     )
     parser.add_argument(
         "--max-position",
         type=int,
-        default=10,
         help="Maximum position size (absolute value)",
     )
     parser.add_argument(
         "--order-expiration",
         type=int,
-        default=60,
         help="Order expiration time in seconds (default: 60)",
     )
     args = parser.parse_args()
@@ -292,20 +467,38 @@ if __name__ == "__main__":
     EMAIL = os.getenv("KALSHI_EMAIL")
     PASSWORD = os.getenv("KALSHI_PASSWORD")
 
-    api = KalshiTradingAPI(
-        email=EMAIL,
-        password=PASSWORD,
-        market_ticker=args.market_ticker,
-        trade_side=args.trade_side,
-        base_url=BASE_URL,
+    # api = KalshiTradingAPI(
+    #     email=EMAIL,
+    #     password=PASSWORD,
+    #     market_ticker=args.market_ticker,
+    #     trade_side=args.trade_side,
+    #     base_url=BASE_URL,
+    #     logger=logger,
+    # )
+
+    api = SimulatedKalshiTradingApi(
+        initial_price=0.5,  # Start with a mid-price of 0.5
+        volatility=0.00001,   # Adjust this to match your sigma parameter
         logger=logger,
     )
 
-    market_maker = MarketMaker(
+    market_maker = SimpleMarketMaker(
         logger=logger,
         api=api,
         spread=args.spread,
         max_position=args.max_position,
         order_expiration=args.order_expiration
     )
+
+    # market_maker = AvellanedaMarketMaker(
+    #     logger=logger,
+    #     api=api,
+    #     gamma=0.7,
+    #     k=1.5,
+    #     sigma=0.00001,
+    #     T=3600,  # 1 hour trading horizon
+    #     max_position=args.max_position,
+    #     order_expiration=args.order_expiration
+    # )
+
     market_maker.run(args.dt)
