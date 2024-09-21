@@ -17,16 +17,16 @@ real_avellaneda:
     trade_side: "yes"
   market_maker:
     type: avellaneda
-    max_position: 5
-    order_expiration: 60
+    max_position: 8
+    order_expiration: 3600
     gamma: 0.1
-    k: 1.2
+    k: 1.5
     sigma: 0.001
-    T: 3600
+    T: 18000 # 5 hours
     min_spread: 0.0
     position_limit_buffer: 0.1
-    inventory_skew_factor: 0.01
-  dt: 10.0
+    inventory_skew_factor: 0.001
+  dt: 1.0
 
 simulated_avellaneda:
   api:

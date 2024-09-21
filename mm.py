@@ -1,7 +1,7 @@
 import abc
 import argparse
 import time
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import requests
 from datetime import datetime
 import logging
@@ -349,6 +349,11 @@ class SimpleMarketMaker:
 
             time.sleep(dt)
 
+import math
+import time
+import logging
+from typing import Dict, Tuple
+
 class AvellanedaMarketMaker:
     def __init__(
         self,
@@ -371,11 +376,11 @@ class AvellanedaMarketMaker:
         self.sigma = sigma
         self.T = T
         self.max_position = max_position
-        self.current_orders = []
         self.order_expiration = order_expiration
         self.min_spread = min_spread
         self.position_limit_buffer = position_limit_buffer
         self.inventory_skew_factor = inventory_skew_factor
+        self.current_orders = {}
 
     def calculate_dynamic_gamma(self, inventory: int) -> float:
         position_ratio = inventory / self.max_position
@@ -401,7 +406,7 @@ class AvellanedaMarketMaker:
         self.logger.info(f"Calculated optimal spread: {scaled_spread:.4f}")
         return scaled_spread
 
-    def calculate_asymmetric_quotes(self, mid_price: float, inventory: int, t: float) -> tuple:
+    def calculate_asymmetric_quotes(self, mid_price: float, inventory: int, t: float) -> Tuple[float, float]:
         reservation_price = self.calculate_reservation_price(mid_price, inventory, t)
         base_spread = self.calculate_optimal_spread(t, inventory)
         
@@ -432,7 +437,7 @@ class AvellanedaMarketMaker:
         self.logger.info(f"Asymmetric quotes - Bid: {bid_price:.4f}, Ask: {ask_price:.4f}")
         return bid_price, ask_price
 
-    def calculate_order_sizes(self, inventory: int) -> tuple:
+    def calculate_order_sizes(self, inventory: int) -> Tuple[int, int]:
         remaining_capacity = self.max_position - abs(inventory)
         buffer_size = int(self.max_position * self.position_limit_buffer)
 
@@ -445,8 +450,31 @@ class AvellanedaMarketMaker:
         
         return buy_size, sell_size
 
+    def is_price_equal(self, price1: float, price2: float, tolerance: float = 1e-6) -> bool:
+        return abs(price1 - price2) < tolerance
+
+    def manage_order(self, side: str, price: float, size: int, mid_price: float):
+        active_orders = [o for o in self.current_orders.values() if o['side'] == side]
+        
+        if active_orders:
+            existing_order = active_orders[0]
+            if not self.is_price_equal(existing_order['price'], price):
+                self.logger.info(f"Canceling {side} order {existing_order['id']} due to price change")
+                self.api.cancel_order(existing_order['id'])
+                del self.current_orders[existing_order['id']]
+            else:
+                self.logger.info(f"Keeping existing {side} order")
+                return
+
+        if (side == "BUY" and 0 < price < mid_price) or (side == "SELL" and mid_price < price < 1):
+            expiration_ts = int(time.time()) + self.order_expiration
+            order_id = self.place_order(side, price, size, expiration_ts)
+            if order_id:
+                self.logger.info(f"Placed new {side} order: {order_id}")
+        else:
+            self.logger.info(f"Skipping {side} order: Price {price:.4f} is out of valid range")
+
     def place_order(self, side: str, price: float, size: int, expiration_ts: int) -> str:
-        # Safety check to prevent exceeding max position
         current_position = self.api.get_position()
         if side == "BUY" and current_position + size > self.max_position:
             size = max(0, self.max_position - current_position)
@@ -454,7 +482,15 @@ class AvellanedaMarketMaker:
             size = max(0, current_position + self.max_position)
 
         if size > 0:
-            return self.api.place_order(side, price, size, expiration_ts)
+            order_id = self.api.place_order(side, price, size, expiration_ts)
+            self.current_orders[order_id] = {
+                "id": order_id,
+                "side": side,
+                "price": price,
+                "size": size,
+                "placed_at": time.time()
+            }
+            return order_id
         else:
             self.logger.info(f"Skipping {side} order: Size would exceed position limit")
             return None
@@ -468,32 +504,16 @@ class AvellanedaMarketMaker:
             mid_price = self.api.get_price()
             inventory = self.api.get_position()
             self.logger.info(f"Current mid price: {mid_price:.4f}, Inventory: {inventory}")
-            self.current_orders = [order["order_id"] for order in self.api.get_orders()]
 
-            # Cancel existing orders
-            for order_id in self.current_orders:
-                self.api.cancel_order(order_id)
-            self.current_orders.clear()
+            for order_id, order in self.current_orders.items():
+                order_age = time.time() - order['placed_at']
+                self.logger.info(f"Order {order_id} has been active for {order_age:.2f} seconds")
 
-            # Calculate new bid and ask prices
             bid_price, ask_price = self.calculate_asymmetric_quotes(mid_price, inventory, current_time)
             buy_size, sell_size = self.calculate_order_sizes(inventory)
 
-            # Place new orders
-            expiration_ts = int(time.time()) + self.order_expiration
-            if 0 < bid_price < mid_price:
-                bid_id = self.place_order("BUY", bid_price, buy_size, expiration_ts)
-                if bid_id:
-                    self.current_orders.append(bid_id)
-            else:
-                self.logger.info(f"Skipping BUY order: Price {bid_price:.4f} is out of valid range (0, {mid_price:.4f})")
-
-            if mid_price < ask_price < 1:
-                ask_id = self.place_order("SELL", ask_price, sell_size, expiration_ts)
-                if ask_id:
-                    self.current_orders.append(ask_id)
-            else:
-                self.logger.info(f"Skipping SELL order: Price {ask_price:.4f} is out of valid range ({mid_price:.4f}, 1)")
+            self.manage_order("BUY", bid_price, buy_size, mid_price)
+            self.manage_order("SELL", ask_price, sell_size, mid_price)
 
             time.sleep(dt)
 
@@ -524,15 +544,7 @@ def create_api(api_config, logger):
         raise ValueError(f"Unknown API type: {api_config['type']}")
 
 def create_market_maker(mm_config, api, logger):
-    if mm_config['type'] == 'simple':
-        return SimpleMarketMaker(
-            logger=logger,
-            api=api,
-            spread=mm_config.get('spread'),
-            max_position=mm_config.get('max_position'),
-            order_expiration=mm_config.get('order_expiration'),
-        )
-    elif mm_config['type'] == 'avellaneda':
+    if mm_config['type'] == 'avellaneda':
         return AvellanedaMarketMaker(
             logger=logger,
             api=api,
@@ -542,12 +554,21 @@ def create_market_maker(mm_config, api, logger):
             T=mm_config.get('T', 3600),
             max_position=mm_config.get('max_position'),
             order_expiration=mm_config.get('order_expiration'),
-            min_spread=mm_config.get('min_spread'),
+            min_spread=mm_config.get('min_spread', 0.01),
             position_limit_buffer=mm_config.get('position_limit_buffer', 0.1),
-            inventory_skew_factor=mm_config.get('inventory_skew_factor', 0.01)
+            inventory_skew_factor=mm_config.get('inventory_skew_factor', 0.01),
+        )
+    elif mm_config['type'] == 'simple':
+        return SimpleMarketMaker(
+            logger=logger,
+            api=api,
+            spread=mm_config.get('spread'),
+            max_position=mm_config.get('max_position'),
+            order_expiration=mm_config.get('order_expiration'),
         )
     else:
         raise ValueError(f"Unknown market maker type: {mm_config['type']}")
+
 
 
 if __name__ == "__main__":
