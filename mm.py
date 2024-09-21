@@ -10,6 +10,7 @@ import os
 import uuid
 import math
 import random
+import yaml
 
 
 class AbstractTradingAPI(abc.ABC):
@@ -417,88 +418,77 @@ class AvellanedaMarketMaker:
 
         self.logger.info("Avellaneda market maker finished running")
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Simple Market Making Algorithm")
-    parser.add_argument(
-        "--dt", type=float, default=1.0, help="Trading frequency in seconds"
-    )
-    parser.add_argument(
-        "--market-ticker", type=str, required=True, help="Market ticker"
-    )
-    parser.add_argument(
-        "--trade-side",
-        type=str,
-        choices=["yes", "no"],
-        required=True,
-        help="Side to trade (yes or no)",
-    )
-    parser.add_argument(
-        "--log-level",
-        type=str,
-        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
-        default="INFO",
-        help="Logging level",
-    )
-    parser.add_argument(
-        "--spread",
-        type=float,
-        help="Spread for market making (in dollars)",
-    )
-    parser.add_argument(
-        "--max-position",
-        type=int,
-        help="Maximum position size (absolute value)",
-    )
-    parser.add_argument(
-        "--order-expiration",
-        type=int,
-        help="Order expiration time in seconds (default: 60)",
-    )
-    args = parser.parse_args()
 
-    logging.basicConfig(level=args.log_level)
+def load_config(config_file, config_name):
+    with open(config_file, 'r') as f:
+        configs = yaml.safe_load(f)
+    return configs.get(config_name, {})
+
+def create_api(api_config, logger):
+    if api_config['type'] == 'real':
+        return KalshiTradingAPI(
+            email=os.getenv("KALSHI_EMAIL"),
+            password=os.getenv("KALSHI_PASSWORD"),
+            market_ticker=api_config['market_ticker'],
+            trade_side=api_config['trade_side'],
+            base_url=os.getenv("KALSHI_BASE_URL"),
+            logger=logger,
+        )
+    elif api_config['type'] == 'simulated':
+        return SimulatedKalshiTradingApi(
+            initial_price=api_config.get('initial_price', 0.5),
+            volatility=api_config.get('volatility', 0.00001),
+            logger=logger,
+        )
+    else:
+        raise ValueError(f"Unknown API type: {api_config['type']}")
+
+def create_market_maker(mm_config, api, logger):
+    if mm_config['type'] == 'simple':
+        return SimpleMarketMaker(
+            logger=logger,
+            api=api,
+            spread=mm_config.get('spread'),
+            max_position=mm_config.get('max_position'),
+            order_expiration=mm_config.get('order_expiration'),
+        )
+    elif mm_config['type'] == 'avellaneda':
+        return AvellanedaMarketMaker(
+            logger=logger,
+            api=api,
+            gamma=mm_config.get('gamma', 0.7),
+            k=mm_config.get('k', 1.5),
+            sigma=mm_config.get('sigma', 0.00001),
+            T=mm_config.get('T', 3600),
+            max_position=mm_config.get('max_position'),
+            order_expiration=mm_config.get('order_expiration'),
+        )
+    else:
+        raise ValueError(f"Unknown market maker type: {mm_config['type']}")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Market Making Algorithm")
+    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
+    parser.add_argument("--config-name", type=str, required=True, help="Name of the configuration to use")
+    parser.add_argument("--log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
+    args, unknown = parser.parse_known_args()
+
+    # Load configuration
+    config = load_config(args.config, args.config_name)
+
+    # Setup logging
+    logging.basicConfig(level=args.log_level or config.get('log_level', 'INFO'))
     logger = logging.getLogger(__name__)
 
-    # Load environment variables from .env file
+    # Load environment variables
     load_dotenv()
 
-    # Kalshi API configuration
-    BASE_URL = os.getenv("KALSHI_BASE_URL")
-    EMAIL = os.getenv("KALSHI_EMAIL")
-    PASSWORD = os.getenv("KALSHI_PASSWORD")
+    # Create API
+    api = create_api(config['api'], logger)
 
-    # api = KalshiTradingAPI(
-    #     email=EMAIL,
-    #     password=PASSWORD,
-    #     market_ticker=args.market_ticker,
-    #     trade_side=args.trade_side,
-    #     base_url=BASE_URL,
-    #     logger=logger,
-    # )
+    # Create market maker
+    market_maker = create_market_maker(config['market_maker'], api, logger)
 
-    api = SimulatedKalshiTradingApi(
-        initial_price=0.5,  # Start with a mid-price of 0.5
-        volatility=0.00001,   # Adjust this to match your sigma parameter
-        logger=logger,
-    )
-
-    market_maker = SimpleMarketMaker(
-        logger=logger,
-        api=api,
-        spread=args.spread,
-        max_position=args.max_position,
-        order_expiration=args.order_expiration
-    )
-
-    # market_maker = AvellanedaMarketMaker(
-    #     logger=logger,
-    #     api=api,
-    #     gamma=0.7,
-    #     k=1.5,
-    #     sigma=0.00001,
-    #     T=3600,  # 1 hour trading horizon
-    #     max_position=args.max_position,
-    #     order_expiration=args.order_expiration
-    # )
-
-    market_maker.run(args.dt)
+    # Run market maker
+    market_maker.run(config.get('dt', 1.0))
