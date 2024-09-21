@@ -151,7 +151,7 @@ class KalshiTradingAPI(AbstractTradingAPI):
         }
         price_to_send = int(price * 100) # Convert dollars to cents
 
-        if side == "yes":
+        if self.trade_side == "yes":
             data["yes_price"] = price_to_send
         else:
             data["no_price"] = price_to_send

@@ -5,11 +5,10 @@ real_simple:
     trade_side: "yes"
   market_maker:
     type: simple
-    spread: 0.10
+    spread: 0.20
     max_position: 10
     order_expiration: 60
-  log_level: INFO
-  dt: 3.0
+  dt: 2.0
 
 real_avellaneda:
   api:
@@ -24,7 +23,6 @@ real_avellaneda:
     k: 1.2
     sigma: 0.001
     T: 3600
-  log_level: INFO
   dt: 3.0
 
 simulated_avellaneda:
@@ -40,7 +38,6 @@ simulated_avellaneda:
     k: 1.2
     sigma: 0.01
     T: 36000
-  log_level: INFO
   dt: 0.1
 
 simulated_simple:
@@ -53,5 +50,4 @@ simulated_simple:
     spread: 0.10
     max_position: 10
     order_expiration: 60
-  log_level: INFO
   dt: 0.1
