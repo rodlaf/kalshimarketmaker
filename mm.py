@@ -354,12 +354,12 @@ class AvellanedaMarketMaker:
         self,
         logger: logging.Logger,
         api: AbstractTradingAPI,
-        gamma: float = 0.0001,
-        k: float = 1.5,
-        sigma: float = 0.00001,
-        T: float = 3600,  # Time horizon in seconds (e.g., 1 hour)
-        max_position: int = 100,
-        order_expiration: int = 60,
+        gamma: float,
+        k: float,
+        sigma: float,
+        T: float,  # Time horizon in seconds (e.g., 1 hour)
+        max_position,
+        order_expiration,
     ):
         self.api = api
         self.logger = logger
@@ -381,7 +381,7 @@ class AvellanedaMarketMaker:
         normalized_t = t / self.T  # Normalize time to [0, 1]
         spread = (self.gamma * (self.sigma**2) * (1 - normalized_t) + 
                   (2 / self.gamma) * math.log(1 + (self.gamma / self.k)))
-        scaled_spread = spread * 0.01  # Scale to penny level
+        scaled_spread = spread * 0.07  # Scale to penny level, plus an adjustment factor
         self.logger.info(f"Calculated optimal spread: {scaled_spread:.4f}")
         return scaled_spread
 

@@ -21,8 +21,8 @@ real_avellaneda:
     max_position: 10
     order_expiration: 60
     gamma: 0.7
-    k: 1.5
-    sigma: 0.00001
+    k: 1.2
+    sigma: 0.001
     T: 3600
   log_level: INFO
   dt: 3.0
@@ -36,12 +36,12 @@ simulated_avellaneda:
     type: avellaneda
     max_position: 10
     order_expiration: 60
-    gamma: 0.5
+    gamma: 0.9
     k: 1.2
-    sigma: 0.00002
-    T: 7200
+    sigma: 0.01
+    T: 3600
   log_level: INFO
-  dt: 0.01
+  dt: 0.1
 
 simulated_simple:
   api:
