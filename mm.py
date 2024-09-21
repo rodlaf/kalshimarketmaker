@@ -349,11 +349,6 @@ class SimpleMarketMaker:
 
             time.sleep(dt)
 
-import math
-import time
-import logging
-from typing import Dict, Tuple
-
 class AvellanedaMarketMaker:
     def __init__(
         self,
