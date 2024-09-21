@@ -2,7 +2,7 @@ real_simple:
   api:
     type: real
     market_ticker: FEDDECISION-24NOV-C26
-    trade_side: yes
+    trade_side: "yes"
   market_maker:
     type: simple
     spread: 0.10
@@ -15,7 +15,7 @@ real_avellaneda:
   api:
     type: real
     market_ticker: FEDDECISION-24NOV-C26
-    trade_side: yes
+    trade_side: "yes"
   market_maker:
     type: avellaneda
     max_position: 10
@@ -25,7 +25,7 @@ real_avellaneda:
     sigma: 0.00001
     T: 3600
   log_level: INFO
-  dt: 4.0
+  dt: 3.0
 
 simulated_avellaneda:
   api:

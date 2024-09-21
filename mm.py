@@ -48,6 +48,7 @@ class KalshiTradingAPI(AbstractTradingAPI):
         self.password = password
         self.market_ticker = market_ticker
         self.trade_side = trade_side  # 'yes' or 'no'
+        print(f"Trade side: {self.trade_side}")
         self.token = None
         self.member_id = None
         self.logger = logger
@@ -136,30 +137,40 @@ class KalshiTradingAPI(AbstractTradingAPI):
         self.logger.info(f"Current {self.trade_side} mid-market price: ${mid_price:.2f}")
         return mid_price
 
+    
     def place_order(self, side: str, price: float, quantity: int, expiration_ts: int = None) -> str:
-        self.logger.info(
-            f"Placing {side} order at price ${price:.2f} with quantity {quantity}..."
-        )
+        self.logger.info(f"Placing {side} order at price ${price:.2f} with quantity {quantity}...")
         path = "/portfolio/orders"
         data = {
             "ticker": self.market_ticker,
             "action": side.lower(),  # 'buy' or 'sell'
             "type": "limit",
-            "side": self.trade_side,
+            "side": self.trade_side,  # 'yes' or 'no'
             "count": quantity,
             "client_order_id": str(uuid.uuid4()),
-            f"{self.trade_side}_price": int(price * 100),  # Convert dollars to cents
         }
+        price_to_send = int(price * 100) # Convert dollars to cents
+
+        if side == "yes":
+            data["yes_price"] = price_to_send
+        else:
+            data["no_price"] = price_to_send
 
         if expiration_ts is not None:
             data["expiration_ts"] = expiration_ts
 
-        response = self.make_request("POST", path, data=data)
-        order_id = response["order"]["order_id"]
-        self.logger.info(
-            f"Placed {side} order at price ${price:.2f} with quantity {quantity}, order ID: {order_id}"
-        )
-        return str(order_id)
+        try:
+            response = self.make_request("POST", path, data=data)
+            order_id = response["order"]["order_id"]
+            self.logger.info(f"Placed {side} order at price ${price:.2f} with quantity {quantity}, order ID: {order_id}")
+            return str(order_id)
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Failed to place order: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                self.logger.error(f"Response content: {e.response.text}")
+                self.logger.error(f"Request data: {data}")
+            raise
+
 
     def cancel_order(self, order_id: int) -> bool:
         self.logger.info(f"Canceling order with ID {order_id}...")
@@ -181,7 +192,11 @@ class KalshiTradingAPI(AbstractTradingAPI):
         return orders
 
     def __del__(self):
-        self.logout()
+            try:
+                self.logout()
+            except Exception as e:
+                self.logger.error(f"Error during logout: {e}")
+                raise
 
 class SimulatedKalshiTradingApi(AbstractTradingAPI):
     def __init__(self, initial_price: float = 0.5, volatility: float = 0.0001, logger: logging.Logger = None):
@@ -405,12 +420,14 @@ class AvellanedaMarketMaker:
                 if 0 < bid_price < mid_price:
                     bid_id = self.api.place_order("BUY", bid_price, 1, expiration_ts)
                     self.current_orders.append(bid_id)
+
                 else:
                     self.logger.info(f"Skipping BUY order: Price {bid_price:.4f} is out of valid range (0, {mid_price:.4f})")
 
                 if mid_price < ask_price < 1:
                     ask_id = self.api.place_order("SELL", ask_price, 1, expiration_ts)
                     self.current_orders.append(ask_id)
+
                 else:
                     self.logger.info(f"Skipping SELL order: Price {ask_price:.4f} is out of valid range ({mid_price:.4f}, 1)")
 
