@@ -13,17 +13,20 @@ real_simple:
 real_avellaneda:
   api:
     type: real
-    market_ticker: FEDDECISION-24NOV-C26
+    market_ticker: RATECUTCOUNT-24DEC31-T4
     trade_side: "yes"
   market_maker:
     type: avellaneda
-    max_position: 10
+    max_position: 5
     order_expiration: 60
-    gamma: 0.7
+    gamma: 0.1
     k: 1.2
     sigma: 0.001
     T: 3600
-  dt: 3.0
+    min_spread: 0.0
+    position_limit_buffer: 0.1
+    inventory_skew_factor: 0.01
+  dt: 10.0
 
 simulated_avellaneda:
   api:
@@ -38,6 +41,7 @@ simulated_avellaneda:
     k: 1.2
     sigma: 0.01
     T: 36000
+    min_spread: 0.02
   dt: 0.1
 
 simulated_simple:

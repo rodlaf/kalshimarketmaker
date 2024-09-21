@@ -357,43 +357,107 @@ class AvellanedaMarketMaker:
         gamma: float,
         k: float,
         sigma: float,
-        T: float,  # Time horizon in seconds (e.g., 1 hour)
-        max_position,
-        order_expiration,
+        T: float,
+        max_position: int,
+        order_expiration: int,
+        min_spread: float = 0.01,
+        position_limit_buffer: float = 0.1,
+        inventory_skew_factor: float = 0.01
     ):
         self.api = api
         self.logger = logger
-        self.gamma = gamma
+        self.base_gamma = gamma
         self.k = k
         self.sigma = sigma
         self.T = T
         self.max_position = max_position
         self.current_orders = []
         self.order_expiration = order_expiration
+        self.min_spread = min_spread
+        self.position_limit_buffer = position_limit_buffer
+        self.inventory_skew_factor = inventory_skew_factor
+
+    def calculate_dynamic_gamma(self, inventory: int) -> float:
+        position_ratio = inventory / self.max_position
+        return self.base_gamma * math.exp(-abs(position_ratio))
 
     def calculate_reservation_price(self, mid_price: float, inventory: int, t: float) -> float:
-        normalized_t = t / self.T  # Normalize time to [0, 1]
-        reservation_price = mid_price - inventory * self.gamma * (self.sigma**2) * (1 - normalized_t)
+        normalized_t = t / self.T
+        dynamic_gamma = self.calculate_dynamic_gamma(inventory)
+        inventory_skew = inventory * self.inventory_skew_factor * mid_price
+        reservation_price = mid_price + inventory_skew - inventory * dynamic_gamma * (self.sigma**2) * (1 - normalized_t)
         self.logger.info(f"Calculated reservation price: {reservation_price:.4f}")
         return reservation_price
 
-    def calculate_optimal_spread(self, t: float) -> float:
-        normalized_t = t / self.T  # Normalize time to [0, 1]
-        spread = (self.gamma * (self.sigma**2) * (1 - normalized_t) + 
-                  (2 / self.gamma) * math.log(1 + (self.gamma / self.k)))
-        scaled_spread = spread * 0.01  # Scale to penny level (TODO: why?)
+    def calculate_optimal_spread(self, t: float, inventory: int) -> float:
+        normalized_t = t / self.T
+        dynamic_gamma = self.calculate_dynamic_gamma(inventory)
+        spread = (dynamic_gamma * (self.sigma**2) * (1 - normalized_t) + 
+                  (2 / dynamic_gamma) * math.log(1 + (dynamic_gamma / self.k)))
+        position_ratio = abs(inventory) / self.max_position
+        spread_adjustment = 1 - (position_ratio ** 2)
+        adjusted_spread = spread * spread_adjustment
+        scaled_spread = max(adjusted_spread * 0.01, self.min_spread)
         self.logger.info(f"Calculated optimal spread: {scaled_spread:.4f}")
         return scaled_spread
 
-    def calculate_optimal_quotes(self, mid_price: float, inventory: int, t: float) -> tuple:
+    def calculate_asymmetric_quotes(self, mid_price: float, inventory: int, t: float) -> tuple:
         reservation_price = self.calculate_reservation_price(mid_price, inventory, t)
-        spread = self.calculate_optimal_spread(t)
+        base_spread = self.calculate_optimal_spread(t, inventory)
         
-        bid_price = max(0, min(mid_price, reservation_price - spread / 2))
-        ask_price = min(1, max(mid_price, reservation_price + spread / 2))
+        position_ratio = inventory / self.max_position
+        spread_adjustment = base_spread * abs(position_ratio) * 3
+
+        if inventory > 0:  # Long position, make selling more aggressive
+            bid_spread = base_spread / 2 + spread_adjustment
+            ask_spread = max(base_spread / 2 - spread_adjustment, self.min_spread / 2)
+        else:  # Short position, make buying more aggressive
+            bid_spread = max(base_spread / 2 - spread_adjustment, self.min_spread / 2)
+            ask_spread = base_spread / 2 + spread_adjustment
         
-        self.logger.info(f"Optimal quotes - Bid: {bid_price:.4f}, Ask: {ask_price:.4f}")
+        bid_price = max(0, min(mid_price, reservation_price - bid_spread))
+        ask_price = min(1, max(mid_price, reservation_price + ask_spread))
+        
+        # Ensure minimum spread is maintained
+        if ask_price - bid_price < self.min_spread:
+            center = (bid_price + ask_price) / 2
+            bid_price = max(0, center - self.min_spread / 2)
+            ask_price = min(1, center + self.min_spread / 2)
+        
+        # Adjust prices to be closer to mid_price when inventory is large
+        max_deviation = 0.1 * mid_price  # Allow up to 10% deviation from mid_price
+        bid_price = max(bid_price, mid_price - max_deviation)
+        ask_price = min(ask_price, mid_price + max_deviation)
+        
+        self.logger.info(f"Asymmetric quotes - Bid: {bid_price:.4f}, Ask: {ask_price:.4f}")
         return bid_price, ask_price
+
+    def calculate_order_sizes(self, inventory: int) -> tuple:
+        remaining_capacity = self.max_position - abs(inventory)
+        buffer_size = int(self.max_position * self.position_limit_buffer)
+
+        if inventory > 0:
+            buy_size = max(1, min(buffer_size, remaining_capacity))
+            sell_size = max(1, self.max_position)  # More aggressive selling
+        else:
+            buy_size = max(1, self.max_position)  # More aggressive buying
+            sell_size = max(1, min(buffer_size, remaining_capacity))
+        
+        return buy_size, sell_size
+
+    def place_order(self, side: str, price: float, size: int, expiration_ts: int) -> str:
+        # Safety check to prevent exceeding max position
+        current_position = self.api.get_position()
+        if side == "BUY" and current_position + size > self.max_position:
+            size = max(0, self.max_position - current_position)
+        elif side == "SELL" and current_position - size < -self.max_position:
+            size = max(0, current_position + self.max_position)
+
+        if size > 0:
+            return self.api.place_order(side, price, size, expiration_ts)
+        else:
+            self.logger.info(f"Skipping {side} order: Size would exceed position limit")
+            return None
 
     def run(self, dt: float):
         start_time = time.time()
@@ -412,29 +476,28 @@ class AvellanedaMarketMaker:
             self.current_orders.clear()
 
             # Calculate new bid and ask prices
-            bid_price, ask_price = self.calculate_optimal_quotes(mid_price, inventory, current_time)
+            bid_price, ask_price = self.calculate_asymmetric_quotes(mid_price, inventory, current_time)
+            buy_size, sell_size = self.calculate_order_sizes(inventory)
 
-            # Place new orders, only if they do not exceed bounds and are within valid price range
-            if abs(inventory) < self.max_position:
-                expiration_ts = int(time.time()) + self.order_expiration
-                if 0 < bid_price < mid_price:
-                    bid_id = self.api.place_order("BUY", bid_price, 1, expiration_ts)
+            # Place new orders
+            expiration_ts = int(time.time()) + self.order_expiration
+            if 0 < bid_price < mid_price:
+                bid_id = self.place_order("BUY", bid_price, buy_size, expiration_ts)
+                if bid_id:
                     self.current_orders.append(bid_id)
+            else:
+                self.logger.info(f"Skipping BUY order: Price {bid_price:.4f} is out of valid range (0, {mid_price:.4f})")
 
-                else:
-                    self.logger.info(f"Skipping BUY order: Price {bid_price:.4f} is out of valid range (0, {mid_price:.4f})")
-
-                if mid_price < ask_price < 1:
-                    ask_id = self.api.place_order("SELL", ask_price, 1, expiration_ts)
+            if mid_price < ask_price < 1:
+                ask_id = self.place_order("SELL", ask_price, sell_size, expiration_ts)
+                if ask_id:
                     self.current_orders.append(ask_id)
-
-                else:
-                    self.logger.info(f"Skipping SELL order: Price {ask_price:.4f} is out of valid range ({mid_price:.4f}, 1)")
+            else:
+                self.logger.info(f"Skipping SELL order: Price {ask_price:.4f} is out of valid range ({mid_price:.4f}, 1)")
 
             time.sleep(dt)
 
         self.logger.info("Avellaneda market maker finished running")
-
 
 def load_config(config_file, config_name):
     with open(config_file, 'r') as f:
@@ -479,6 +542,9 @@ def create_market_maker(mm_config, api, logger):
             T=mm_config.get('T', 3600),
             max_position=mm_config.get('max_position'),
             order_expiration=mm_config.get('order_expiration'),
+            min_spread=mm_config.get('min_spread'),
+            position_limit_buffer=mm_config.get('position_limit_buffer', 0.1),
+            inventory_skew_factor=mm_config.get('inventory_skew_factor', 0.01)
         )
     else:
         raise ValueError(f"Unknown market maker type: {mm_config['type']}")
