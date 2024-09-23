@@ -1,15 +1,13 @@
 import abc
 import argparse
 import time
-from typing import Dict, List, Tuple, Optional
+from typing import Dict, List, Tuple
 import requests
-from datetime import datetime
 import logging
 from dotenv import load_dotenv
 import os
 import uuid
 import math
-import random
 import yaml
 
 class AbstractTradingAPI(abc.ABC):

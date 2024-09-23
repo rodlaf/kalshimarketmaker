@@ -1,0 +1,31 @@
+# fly.toml app configuration file generated for kalshi-market-maker on 2024-09-22T21:15:45-04:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'kalshi-market-maker'
+primary_region = 'bos'
+
+[build]
+  dockerfile = 'Dockerfile'
+
+[[mounts]]
+  source = 'kalshi_data'
+  destination = '/data'
+
+[[services]]
+  protocol = 'tcp'
+  internal_port = 8080
+
+  [[services.ports]]
+    port = 80
+    handlers = ['http']
+
+  [[services.ports]]
+    port = 443
+    handlers = ['tls', 'http']
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
