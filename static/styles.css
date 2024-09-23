@@ -1,0 +1,108 @@
+body {
+  font-family: Arial, sans-serif;
+  line-height: 1.6;
+  margin: 0;
+  padding: 20px;
+  background-color: #f4f4f4;
+}
+
+#dashboard {
+  max-width: 1000px;
+  margin: 0 auto;
+  background-color: #fff;
+  padding: 20px;
+  border-radius: 5px;
+  box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+}
+
+h1, h2, h3 {
+  color: #333;
+}
+
+button {
+  background-color: #4CAF50;
+  color: white;
+  padding: 10px 15px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-right: 10px;
+}
+
+button:hover {
+  background-color: #45a049;
+}
+
+input[type="text"], input[type="number"] {
+  width: 100%;
+  padding: 8px;
+  margin: 5px 0 15px 0;
+  display: inline-block;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+#orderBook {
+  display: flex;
+  justify-content: space-between;
+}
+
+#buyOrders, #sellOrders {
+  width: 48%;
+}
+
+ul {
+  list-style-type: none;
+  padding: 0;
+}
+
+li {
+  background-color: #f9f9f9;
+  margin-bottom: 5px;
+  padding: 5px;
+  border-radius: 3px;
+}
+
+#config form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+#config h3 {
+  grid-column: 1 / -1;
+}
+
+#config label {
+  text-align: right;
+  padding-right: 10px;
+}
+
+#config input {
+  width: 100%;
+}
+
+#config button[type="submit"] {
+  grid-column: 1 / -1;
+  width: 200px;
+  justify-self: center;
+  margin-top: 20px;
+}
+
+#logs {
+  margin-top: 20px;
+  border-top: 1px solid #ccc;
+  padding-top: 20px;
+}
+
+#logOutput {
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #ccc;
+  padding: 10px;
+  background-color: #f9f9f9;
+  font-family: monospace;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}

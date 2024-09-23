@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Market Making Strategy Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+    <div id="dashboard">
+        <h1>Market Making Strategy Dashboard</h1>
+        <div id="controls">
+            <button id="startBtn">Start Strategy</button>
+            <button id="stopBtn">Stop Strategy</button>
+        </div>
+        <div id="config">
+            <h2>Configuration</h2>
+            <form id="configForm">
+                <h3>API Configuration</h3>
+                <label for="marketTicker">Market Ticker:</label>
+                <input type="text" id="marketTicker" name="api.market_ticker" value="{{ config['api']['market_ticker'] }}">
+                <label for="tradeSide">Trade Side:</label>
+                <input type="text" id="tradeSide" name="api.trade_side" value="{{ config['api']['trade_side'] }}">
+
+                <h3>Market Maker Configuration</h3>
+                <label for="maxPosition">Max Position:</label>
+                <input type="number" id="maxPosition" name="market_maker.max_position" value="{{ config['market_maker']['max_position'] }}">
+                <label for="orderExpiration">Order Expiration:</label>
+                <input type="number" id="orderExpiration" name="market_maker.order_expiration" value="{{ config['market_maker']['order_expiration'] }}">
+                <label for="gamma">Gamma:</label>
+                <input type="number" id="gamma" name="market_maker.gamma" value="{{ config['market_maker']['gamma'] }}" step="0.1">
+                <label for="k">K:</label>
+                <input type="number" id="k" name="market_maker.k" value="{{ config['market_maker']['k'] }}" step="0.1">
+                <label for="sigma">Sigma:</label>
+                <input type="number" id="sigma" name="market_maker.sigma" value="{{ config['market_maker']['sigma'] }}" step="0.001">
+                <label for="T">T:</label>
+                <input type="number" id="T" name="market_maker.T" value="{{ config['market_maker']['T'] }}">
+                <label for="minSpread">Min Spread:</label>
+                <input type="number" id="minSpread" name="market_maker.min_spread" value="{{ config['market_maker']['min_spread'] }}" step="0.1">
+                <label for="positionLimitBuffer">Position Limit Buffer:</label>
+                <input type="number" id="positionLimitBuffer" name="market_maker.position_limit_buffer" value="{{ config['market_maker']['position_limit_buffer'] }}" step="0.1">
+                <label for="inventorySkewFactor">Inventory Skew Factor:</label>
+                <input type="number" id="inventorySkewFactor" name="market_maker.inventory_skew_factor" value="{{ config['market_maker']['inventory_skew_factor'] }}" step="0.001">
+                <label for="dt">DT:</label>
+                <input type="number" id="dt" name="market_maker.dt" value="{{ config['market_maker']['dt'] }}" step="0.1">
+
+                <button type="submit">Update Config</button>
+            </form>
+        </div>
+        <div id="orderBook">
+            <h2>Order Book</h2>
+            <div id="buyOrders">
+                <h3>Buy Orders</h3>
+                <ul id="buyOrdersList"></ul>
+            </div>
+            <div id="sellOrders">
+                <h3>Sell Orders</h3>
+                <ul id="sellOrdersList"></ul>
+            </div>
+        </div>
+        <div id="position">
+            <h2>Current Position</h2>
+            <p id="positionValue"></p>
+        </div>
+        <div id="logs">
+            <h2>Logs</h2>
+            <pre id="logOutput"></pre>
+        </div>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
