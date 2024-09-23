@@ -26,7 +26,7 @@ real_avellaneda:
     min_spread: 0.0
     position_limit_buffer: 0.1
     inventory_skew_factor: 0.001
-  dt: 3.0
+  dt: 1.0
 
 simulated_avellaneda:
   api:

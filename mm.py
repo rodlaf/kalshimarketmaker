@@ -289,53 +289,48 @@ class AvellanedaMarketMaker:
         current_orders = self.api.get_orders()
         self.logger.info(f"Retrieved {len(current_orders)} total orders")
 
-        buy_order = None
-        sell_order = None
+        buy_orders = []
+        sell_orders = []
 
         for order in current_orders:
             if order['side'] == self.trade_side:
                 if order['action'] == 'buy':
-                    buy_order = order
+                    buy_orders.append(order)
                 elif order['action'] == 'sell':
-                    sell_order = order
+                    sell_orders.append(order)
 
-        self.logger.info(f"Current buy order: {buy_order}")
-        self.logger.info(f"Current sell order: {sell_order}")
+        self.logger.info(f"Current buy orders: {len(buy_orders)}")
+        self.logger.info(f"Current sell orders: {len(sell_orders)}")
 
-        # Handle buy order
-        if buy_order:
-            current_price = float(buy_order['yes_price']) / 100 if self.trade_side == 'yes' else float(buy_order['no_price']) / 100
-            if abs(current_price - bid_price) >= 0.01 or buy_order['remaining_count'] != buy_size:
-                self.logger.info(f"Cancelling buy order. ID: {buy_order['order_id']}, Old price: {current_price:.4f}, New price: {bid_price:.4f}")
-                self.api.cancel_order(buy_order['order_id'])
-                buy_order = None
+        # Handle buy orders
+        self.handle_order_side('buy', buy_orders, bid_price, buy_size)
+
+        # Handle sell orders
+        self.handle_order_side('sell', sell_orders, ask_price, sell_size)
+
+    def handle_order_side(self, action: str, orders: List[Dict], desired_price: float, desired_size: int):
+        keep_order = None
+        for order in orders:
+            current_price = float(order['yes_price']) / 100 if self.trade_side == 'yes' else float(order['no_price']) / 100
+            if keep_order is None and abs(current_price - desired_price) < 0.01 and order['remaining_count'] == desired_size:
+                keep_order = order
+                self.logger.info(f"Keeping existing {action} order. ID: {order['order_id']}, Price: {current_price:.4f}")
             else:
-                self.logger.info(f"Keeping existing buy order. ID: {buy_order['order_id']}, Price: {current_price:.4f}")
-        
-        if not buy_order and bid_price < self.api.get_price()[self.trade_side]:
-            try:
-                order_id = self.api.place_order('buy', self.trade_side, bid_price, buy_size, int(time.time()) + self.order_expiration)
-                self.logger.info(f"Placed new buy order. ID: {order_id}, Price: {bid_price:.4f}, Size: {buy_size}")
-            except Exception as e:
-                self.logger.error(f"Failed to place buy order: {str(e)}")
+                self.logger.info(f"Cancelling extraneous {action} order. ID: {order['order_id']}, Price: {current_price:.4f}")
+                self.api.cancel_order(order['order_id'])
 
-        # Handle sell order
-        if sell_order:
-            current_price = float(sell_order['yes_price']) / 100 if self.trade_side == 'yes' else float(sell_order['no_price']) / 100
-            if abs(current_price - ask_price) >= 0.01 or sell_order['remaining_count'] != sell_size:
-                self.logger.info(f"Cancelling sell order. ID: {sell_order['order_id']}, Old price: {current_price:.4f}, New price: {ask_price:.4f}")
-                self.api.cancel_order(sell_order['order_id'])
-                sell_order = None
+        current_price = self.api.get_price()[self.trade_side]
+        if keep_order is None:
+            if (action == 'buy' and desired_price < current_price) or (action == 'sell' and desired_price > current_price):
+                try:
+                    order_id = self.api.place_order(action, self.trade_side, desired_price, desired_size, int(time.time()) + self.order_expiration)
+                    self.logger.info(f"Placed new {action} order. ID: {order_id}, Price: {desired_price:.4f}, Size: {desired_size}")
+                except Exception as e:
+                    self.logger.error(f"Failed to place {action} order: {str(e)}")
             else:
-                self.logger.info(f"Keeping existing sell order. ID: {sell_order['order_id']}, Price: {current_price:.4f}")
-        
-        if not sell_order and ask_price > self.api.get_price()[self.trade_side]:
-            try:
-                order_id = self.api.place_order('sell', self.trade_side, ask_price, sell_size, int(time.time()) + self.order_expiration)
-                self.logger.info(f"Placed new sell order. ID: {order_id}, Price: {ask_price:.4f}, Size: {sell_size}")
-            except Exception as e:
-                self.logger.error(f"Failed to place sell order: {str(e)}")
-                
+                self.logger.info(f"Skipped placing {action} order. Desired price {desired_price:.4f} does not improve on current price {current_price:.4f}")
+
+
 def load_config(config_file, config_name):
     with open(config_file, 'r') as f:
         configs = yaml.safe_load(f)
