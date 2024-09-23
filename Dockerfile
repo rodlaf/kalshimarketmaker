@@ -13,5 +13,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Make port 8080 available to the world outside this container
 EXPOSE 8080
 
-# Run mm.py when the container launches
-CMD ["python", "mm.py", "--config", "config.yaml", "--config-name", "default", "--log-level", "INFO", "--trade-side", "yes"]
+# Run runner.py when the container launches
+CMD ["python", "runner.py", "--config", "config.yaml"]

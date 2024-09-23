@@ -1,14 +1,10 @@
 import abc
-import argparse
 import time
 from typing import Dict, List, Tuple
 import requests
 import logging
-from dotenv import load_dotenv
-import os
 import uuid
 import math
-import yaml
 
 class AbstractTradingAPI(abc.ABC):
     @abc.abstractmethod
@@ -327,72 +323,3 @@ class AvellanedaMarketMaker:
                     self.logger.error(f"Failed to place {action} order: {str(e)}")
             else:
                 self.logger.info(f"Skipped placing {action} order. Desired price {desired_price:.4f} does not improve on current price {current_price:.4f}")
-
-
-def load_config(config_file, config_name):
-    with open(config_file, 'r') as f:
-        configs = yaml.safe_load(f)
-    return configs.get(config_name, {})
-
-def create_api(api_config, logger):
-    return KalshiTradingAPI(
-        email=os.getenv("KALSHI_EMAIL"),
-        password=os.getenv("KALSHI_PASSWORD"),
-        market_ticker=api_config['market_ticker'],
-        base_url=os.getenv("KALSHI_BASE_URL"),
-        logger=logger,
-    )
-
-def create_market_maker(mm_config, api, logger):
-    return AvellanedaMarketMaker(
-        logger=logger,
-        api=api,
-        gamma=mm_config.get('gamma', 0.1),
-        k=mm_config.get('k', 1.5),
-        sigma=mm_config.get('sigma', 0.5),
-        T=mm_config.get('T', 3600),
-        max_position=mm_config.get('max_position', 100),
-        order_expiration=mm_config.get('order_expiration', 300),
-        min_spread=mm_config.get('min_spread', 0.01),
-        position_limit_buffer=mm_config.get('position_limit_buffer', 0.1),
-        inventory_skew_factor=mm_config.get('inventory_skew_factor', 0.01),
-        trade_side=mm_config.get('trade_side', 'yes')
-    )
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Kalshi Market Making Algorithm")
-    parser.add_argument("--config", type=str, default="config.yaml", help="Path to config file")
-    parser.add_argument("--config-name", type=str, required=True, help="Name of the configuration to use")
-    parser.add_argument("--log-level", type=str, choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], help="Logging level")
-    parser.add_argument("--trade-side", type=str, choices=["yes", "no"], default="yes", help="Trade side (yes or no)")
-    args = parser.parse_args()
-
-    # Load configuration
-    config = load_config(args.config, args.config_name)
-
-    # Setup logging
-    logging.basicConfig(level=args.log_level or config.get('log_level', 'INFO'))
-    logger = logging.getLogger(__name__)
-
-    # Load environment variables
-    load_dotenv()
-
-    # Create API
-    api = create_api(config['api'], logger)
-
-    # Update trade_side in config
-    config['market_maker']['trade_side'] = args.trade_side
-
-    # Create market maker
-    market_maker = create_market_maker(config['market_maker'], api, logger)
-
-    try:
-        # Run market maker
-        market_maker.run(config.get('dt', 1.0))
-    except KeyboardInterrupt:
-        logger.info("Market maker stopped by user")
-    except Exception as e:
-        logger.error(f"An error occurred: {str(e)}")
-    finally:
-        # Ensure logout happens even if an exception occurs
-        api.logout()
