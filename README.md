@@ -1,6 +1,6 @@
 # Kalshi Market Making Algorithm
 
-This project implements a market making algorithm for Kalshi markets, capable of running multiple strategies in parallel.
+This project implements a market making algorithm for Kalshi markets, capable of running multiple strategies in parallel. It's most involved algorithm implementaiton is the Avellaneda-Stoikov model.
 
 ## Local Setup
 
